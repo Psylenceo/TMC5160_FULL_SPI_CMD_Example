@@ -21,7 +21,7 @@
 #include <TMCStepper.h>                       //header for tmcstepper library
 #include <TMCStepper_UTILITY.h>               //header for thcstepper utility library
 
-#define TMC5160_FULL_SPI_CMD_Example_VERSION 0x000002  //v0.0.2 - alpha
+#define TMC5160_FULL_SPI_CMD_Example_VERSION 0x000101  //v0.1.1 - alpha
 
 #define pi 3.1415926535                       //Pi is used in calculating the drivers initial pwm gradient for autotuning the motor
 
