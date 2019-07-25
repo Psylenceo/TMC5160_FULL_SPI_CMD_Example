@@ -21,7 +21,7 @@
 #include <TMCStepper.h>                       //header for tmcstepper library
 #include <TMCStepper_UTILITY.h>               //header for thcstepper utility library
 
-#define TMC5160_FULL_SPI_CMD_Example_VERSION 0x000001  //v0.0.1 - alpha
+#define TMC5160_FULL_SPI_CMD_Example_VERSION 0x000002  //v0.0.2 - alpha
 
 #define pi 3.1415926535                       //Pi is used in calculating the drivers initial pwm gradient for autotuning the motor
 
@@ -159,8 +159,7 @@ TMC5160Stepper driver = TMC5160Stepper(ss, sense_resistor); //we are also tellin
    the function and everything inside the function below the main loop
  ***********************************************************/
 void base_calc_values(void);                     //prototype, but this will show what the calculations above result in as initial values
-void read_GSTAT_address(void);                   //prototype function to read only the specific register address from the TMC5160
-void read_DRV_STATUS_address(void);              //prototype function to read only the specific register address from the TMC5160
+void read_motor_performance(void);                 //prototype function to read only the specific register address from the TMC5160
 
 void setup() {
   /* start up uart config as PC interface */{
@@ -169,7 +168,7 @@ void setup() {
     Serial.println("Start...");             //com port is open, send 1st mesage
     Serial.println("");                     //add a new line to separate information
     base_calc_values();                     //readout the defined calculations
-    delay(10000);                           //wait 10 seconds so user can read values
+    delay(5000);                           //wait 10 seconds so user can read values
   }
 
   /* start up SPI, configure SPI, and axis IO interfacing*/{
@@ -184,13 +183,6 @@ void setup() {
   /*Initial settings for basic SPI command stepper drive no other functions enabled*/ {
     driver.begin();                         // start the tmc library
 
-    /* Inital register read */ {
-      Serial.println("");                     //add a new line to separate information
-      Serial.println(F("Initial drive start up register reading."));
-      read_registers();                       //Read all TMC5160 readable registers. Should read initial power presets or last configuration.
-      delay(5000);                            //allow some reading time
-    }
-
     /* base GCONF settings for bare stepper driver operation*/    {
       driver.recalibrate(0);                //do not recalibrate the z axis
       driver.faststandstill(0);             //fast stand still at 65ms
@@ -200,6 +192,16 @@ void setup() {
       driver.small_hysteresis(0);           //step hysteresis set 1/16
       driver.stop_enable(0);                //no stop motion inputs
       driver.direct_mode(0);                //normal driver operation
+    }
+
+    /* Set operation current limits */
+    driver.rms_current(nominal_amps, 1);    //set Irun and Ihold for the drive
+
+    /* short circuit monitoring */    {
+      driver.diss2vs(0);                    //driver monitors for short to supply
+      driver.s2vs_level(6);                 //lower values set drive to be very sensitive to low side voltage swings
+      driver.diss2g(0);                     //driver to monitor for short to ground
+      driver.s2g_level(6);                  //lower values set drive to be very sensitive to high side voltage swings
     }
 
     /* minimum settings to to get a motor moving using SPI commands */{
@@ -222,33 +224,40 @@ void setup() {
     driver.VSTOP(10);              //set stop velocity to 10 steps/sec
     driver.VSTART(10);             //set start velocity to 10 steps/sec
 
-    driver.V1(204800);               //midpoint velocity to  steps/sec ( steps/sec)
-    driver.VMAX(1273632);             //max velocity to  steps/sec ( steps/sec)
+    driver.V1(350000);               //midpoint velocity to  steps/sec ( steps/sec)
+    driver.VMAX(636816);             //max velocity to  steps/sec ( steps/sec)
 
-    driver.A1(41776);               //initial accel at  steps/sec2 ( steps/sec2)
-    driver.AMAX(41776);             //max accel at  steps/sec2 ( steps/sec2)
+    driver.A1(500);               //initial accel at  steps/sec2 ( steps/sec2)
+    driver.AMAX(60300);             //max accel at  steps/sec2 ( steps/sec2)
 
-    driver.DMAX(51200);             //max deccel  steps/sec2 ( steps/sec2)
-    driver.D1(51200);               //mid deccel  steps/sec2 ( steps/sec2)
+    driver.DMAX(60300);             //max deccel  steps/sec2 ( steps/sec2)
+    driver.D1(500);               //mid deccel  steps/sec2 ( steps/sec2)
   }
 
   /* Reseting drive faults and re-enabling drive */ {
-      digitalWrite(drv_en, HIGH);             //disable drive to clear any start up faults
-      delay(1000);                            //give the drive some time to clear faults
-      digitalWrite(drv_en, LOW);              //re-enable drive, to start loading in parameters
-      driver.toff(0);                         //attempt to clear ground faults on start-up
-      driver.GSTAT(7);                        //clear gstat faults
-      read_DRV_STATUS_address();              //read out DRiver status to verify ground faults re cleared
-      read_GSTAT_address();                   //read out GSTAT to verify its faults are cleared.
-    }
+    digitalWrite(drv_en, HIGH);             //disable drive to clear any start up faults
+    delay(1000);                            //give the drive some time to clear faults
+    digitalWrite(drv_en, LOW);              //re-enable drive, to start loading in parameters
+    driver.GSTAT(7);                        //clear gstat faults
+  }
 
 
 }
 
 void loop() {
-  Serial.println("In loop");
-  while (1);                    //debug message hold to know when program has exited setup routine.
+  Serial.println("mechanical load,position,velocity");
+  while (1){                    //debug message hold to know when program has exited setup routine.
+    /*Now lets start the first actual move to see if everything worked, and to hear what the stepper sounds like.*/
+    if (driver.position_reached() == 1) driver.XTARGET((200 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
+    while (driver.position_reached() == 0){                                                 //while in motion do nothing. This prevents the code from missing actions
+      read_motor_performance();
+    }
 
+    if (driver.position_reached() == 1) driver.XTARGET(0);                                  //verify motor is at position, then move motor back to starting position
+    while (driver.position_reached() == 0){                                                 //while in motion do nothing. This prevents the code from missing actions
+      read_motor_performance();
+    }
+  }
 } //end of loop
 //end of loop
 
@@ -289,44 +298,25 @@ void base_calc_values(void) {
 } //end of base calc
 //end of base calc
 
-void read_GSTAT_address(void){
-  /* read of GSTAT */{
-      Serial.println(F(""));
-      Serial.print(F("GSTAT -> "));
-      Serial.println(driver.GSTAT(), BIN);                                                        //display gstat register as binary
-      if (driver.reset() == 1)Serial.println(F("--driver has been reset. All values restored to factory defaults. Reload specific configuration settings"));
-      if (driver.drv_err() == 1)Serial.println(F("--over temp or short circuit fault. read drv_status for details"));
-      if (driver.uv_cp() == 1)Serial.println(F("--undervoltage on charge pump detected"));
-    }
-}//end of read GSTAT
-//end of read GSTAT
+void read_motor_performance(void){
+  /*display measured load values (current, motor temp, and mechanical load)*/{
+    Serial.print(driver.sg_result());
+    Serial.print(",");
+    Serial.print((driver.XACTUAL() * .00015703125));
+    Serial.print(",");
+    Serial.println((driver.VACTUAL() * .00015703125));
+    delay(10);
+    dt++;
+  }
+} //end of read performance
+//end of read performance
 
-void read_DRV_STATUS_address(void){
-  /* read DRV_STATUS */ {
-      Serial.println(F(""));
-      Serial.print(F("DRV_STATUS ->"));
-      Serial.println(driver.DRV_STATUS(), BIN);                                                   //display driver status as binary
-      if (driver.stst() == 1)Serial.println(F("--Standstill"));                                      // state what driver status bits are active
-      if (driver.olb() == 1)Serial.println(F("--open load phase b"));
-      if (driver.ola() == 1)Serial.println(F("--open load phase a"));
-      if (driver.s2gb() == 1)Serial.println(F("--short to ground phase b"));
-      if (driver.s2ga() == 1)Serial.println(F("--short to ground phase a"));
-      if (driver.otpw() == 1)Serial.println(F("--over temp pre-warning"));
-      if (driver.ot() == 1)Serial.println(F("--over temp"));
-      if (driver.stallguard() == 1)Serial.println(F("--stall detected"));
-      if (driver.fsactive() == 1)Serial.println(F("--full steps active"));
-      //if(driver.stealth() == 1)Serial.println(F("--stealth chop is active"));             //library missing these 3 for tmc5160
-      //if(driver.s2vsb() == 1)Serial.println(F("--short to vs phase b"));
-      //if(driver.s2vsa() == 1)Serial.println(F("--short to vs phase a"));
 
-      /* Temporary function read until library gets updated */
-      if( (driver.DRV_STATUS() & 0x00004000) == 1)Serial.println(F("--stealth chop is active"));
-      if( (driver.DRV_STATUS() & 0x00002000) == 1)Serial.println(F("--short to vs phase b"));
-      if( (driver.DRV_STATUS() & 0x00001000) == 1)Serial.println(F("--short to vs phase a"));
 
-    }
-} //end of read DRV_STATUS
-//end of read DRV_STATUS
+
+
+
+
 
 
 //end of program
