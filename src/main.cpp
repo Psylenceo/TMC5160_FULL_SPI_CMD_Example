@@ -130,7 +130,9 @@
    Finally we calculate the drivers PWM off time.
  ***********************************************************/
 
-float  nominal_amps = ( ((motor_milliamps * motor_voltage) / supply_voltage) * 1.0 ),                           //calculate the voltage based curent
+#define nominal_amps (((motor_milliamps * motor_voltage) / supply_voltage) * 1.0)
+
+float  /*nominal_amps = ( ((motor_milliamps * motor_voltage) / supply_voltage) * 1.0 ),*/                           //calculate the voltage based curent
        cbemf = ( motor_hold_torque / (2 * nominal_amps) ),                                                      //calc the back emf constant of the motor
        really_small_number = ( (1 / drv_chop_freq) ),                                                           //testing to driv_toff to calc the number
        microsteps_per_rev = 51200/*( (motor_counts *  drv_microstep_res) )*/,                                   //testing to get the micro steps per rev calced
@@ -170,6 +172,8 @@ void setup() {
     base_calc_values();                     //readout the defined calculations
     delay(5000);                           //wait 10 seconds so user can read values
   }
+
+  while(1);
 
   /* start up SPI, configure SPI, and axis IO interfacing*/{
     SPI.begin();                            //start spi
