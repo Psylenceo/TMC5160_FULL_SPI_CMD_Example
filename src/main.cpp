@@ -306,7 +306,6 @@ void read_motor_performance(void){
     Serial.print(",");
     Serial.println((driver.VACTUAL() * .00015703125));
     delay(10);
-    dt++;
   }
 } //end of read performance
 //end of read performance
