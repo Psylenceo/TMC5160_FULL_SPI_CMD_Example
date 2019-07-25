@@ -64,7 +64,7 @@
 #define motor_resistance 30                           //Motor coil resistance from datasheet. Change to match your motor.
 #define motor_hold_torque 260                         //Motor holding torque from datasheet. Change to match your motor. May need to calculate
 #define motor_step_degrees 1.8                        //angle of rotation per step of motor
-#define motor_counts (360 / motor_step_degrees)       //number of full steps per full rotation of motor. 360 / degrees = full step count
+#define motor_us_counts (360/motor_step_degrees)       //number of full steps per full rotation of motor. 360 / degrees = full step count
 
 /****************************************************
    Now we need to define some of the base setting that
@@ -83,7 +83,7 @@
  ***********************************************************/
 #define drv_clock 12000000                          //using internal clock, tie the clk pin low. If using a different freq, change this value to match
 #define drv_chop_freq 35100                         //drivers chop frequency set by pwm_freq and based on clk frequency. Change to match.
-#define drv_decay_percent 70                        //percentage of chopper standstill cycle time for lower power dissipation and upper frequency limit
+#define drv_decay_percent .7                        //percentage (as a decimal) of chopper standstill cycle time for lower power dissipation and upper frequency limit
 #define drv_microstep_res 256                       //number of micro steps per full step. 
 
 /***************************************************************
@@ -130,15 +130,12 @@
    Finally we calculate the drivers PWM off time.
  ***********************************************************/
 
-#define nominal_amps (((motor_milliamps * motor_voltage) / supply_voltage) * 1.0)
-
-float  /*nominal_amps = ( ((motor_milliamps * motor_voltage) / supply_voltage) * 1.0 ),*/                           //calculate the voltage based curent
-       cbemf = ( motor_hold_torque / (2 * nominal_amps) ),                                                      //calc the back emf constant of the motor
-       really_small_number = ( (1 / drv_chop_freq) ),                                                           //testing to driv_toff to calc the number
-       microsteps_per_rev = 51200/*( (motor_counts *  drv_microstep_res) )*/,                                   //testing to get the micro steps per rev calced
-       drv_pwm_grad = ( (cbemf * 2 * pi * ( (drv_clock * 1.46) / (supply_voltage * microsteps_per_rev))) ),     //calculate the pwm gradient
-       drv_pwm_ofs = ( (374 * motor_resistance * (nominal_amps / 1000)) / supply_voltage),                      //calculate teh pwm offest
-       driv_toff = ( 3/*really_small_number * drv_clock / 10(((1 / drv_chop_freq) * (drv_decay_percent / 100) * .5) * drv_clock - 12) / 32*/ ); //calculatethe toff of the motor, currently does not calculate value
+#define nominal_amps (((motor_milliamps * motor_voltage) / supply_voltage) * 1.0)                                //calculate the voltage based curent
+#define cbemf (motor_hold_torque / (2 * nominal_amps))                                                           //calc the back emf constant of the motor
+#define microsteps_per_rev ((motor_us_counts *  drv_microstep_res))
+#define drv_pwm_grad ((cbemf * 2 * pi * ((drv_clock * 1.46) / (supply_voltage * microsteps_per_rev))))           //calculate the pwm gradient
+#define drv_pwm_ofs ((374 * motor_resistance * (nominal_amps / 1000)) / supply_voltage)                          //calculate teh pwm offest
+#define driv_toff ((((100000 / drv_chop_freq) * drv_decay_percent * .5) * drv_clock - 12) / 3200000)             //calculate the toff of the motor, currently does not calculate value
 
 /***********************************************************
    Using the example motor, this gives us results of:
@@ -277,6 +274,7 @@ void loop() {
 void base_calc_values(void) {
   Serial.print(F("Supply voltage set to -> "));
   Serial.println(supply_voltage);
+  Serial.println("");
   Serial.print(F("Motor rated milliamps -> "));
   Serial.println(motor_milliamps);
   Serial.print(F("Motor rated volts -> "));
@@ -285,18 +283,25 @@ void base_calc_values(void) {
   Serial.println(motor_resistance);
   Serial.print(F("Motor rated holding torque in mNm -> "));
   Serial.println(motor_hold_torque);
+  Serial.println("");
   Serial.print(F("Driver clock frequency -> "));
   Serial.println(drv_clock);
+  Serial.println("");
   Serial.print(F("Calculated nominal amps based on motor wattage -> "));
   Serial.println(nominal_amps);
   Serial.print(F("Calculated back EMF constant -> "));
   Serial.println(cbemf);
+  Serial.println("");
+  Serial.print(F("Microsteps per revolution -> "));
+  Serial.println(microsteps_per_rev);
+  Serial.println("");
+  Serial.print(F("Calculated PMW off time initializer -> "));
+  Serial.println(driv_toff);
+  Serial.println("");
   Serial.print(F("calculated velocity based PWM gradient -> "));
   Serial.println(drv_pwm_grad);
   Serial.print(F("Calculated initial PWM offset -> "));
-  Serial.println(drv_pwm_ofs);
-  Serial.print(F("Calculated PMW off time initializer -> "));
-  Serial.println(driv_toff);
+  Serial.println(drv_pwm_ofs);  
   Serial.print(F("Drive PWM_SCALE_SUM calculation -> "));
   Serial.println( (drv_pwm_ofs + drv_pwm_grad * .7488) );   //The .7488 = 256 * (step frequency / clock freq)
 } //end of base calc
