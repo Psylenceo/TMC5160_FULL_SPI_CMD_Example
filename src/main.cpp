@@ -218,7 +218,7 @@ void setup() {
    * 
    * @ 12MHz clock, a 1.8 motor using 256 micro steps, driver output top speed is:
      7500 RPM / 125 RPS / 45,000 deg/sec / 1,277 mm/sec
-     Which takes 1.5 second from 0 rpm to 7500 RPM at an AMAX setting of 65156.
+     Which takes second from 0 rpm to 7500 RPM at an AMAX setting of 65535 (10.29104296875 mm/s2).
    *************************************************************/
   /* Ramp mode (default)*/{
     driver.RAMPMODE(0);             //set ramp mode to positioning
@@ -308,7 +308,7 @@ void base_calc_values(void) {
 //end of base calc
 
 void read_motor_performance(void){
-  /*display measured load values (current, motor temp, and mechanical load)*/{
+  /*display measured load values (amperage coil A, amperage coil B,torque,mechanical load,position,velocity,accel,jerk)*/{
     Serial.print(driver.sg_result());
     Serial.print(",");
     Serial.print((driver.XACTUAL() * .00015703125));
