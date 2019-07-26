@@ -164,13 +164,11 @@ void setup() {
   /* start up uart config as PC interface */{
     Serial.begin(115200);                   //serial com at 115200 baud
     while (!Serial);                        //wait for the arduino to detect an open com port
-    Serial.println("Start...");             //com port is open, send 1st mesage
-    Serial.println("");                     //add a new line to separate information
-    base_calc_values();                     //readout the defined calculations
+    //Serial.println("Start...");             //com port is open, send 1st mesage
+    //Serial.println("");                     //add a new line to separate information
+    //base_calc_values();                     //readout the defined calculations
     delay(5000);                           //wait 10 seconds so user can read values
   }
-
-  while(1);
 
   /* start up SPI, configure SPI, and axis IO interfacing*/{
     SPI.begin();                            //start spi
@@ -217,22 +215,22 @@ void setup() {
    * and motion values. ( accel / deccel / velocities)
    * 
    * @ 12MHz clock, a 1.8 motor using 256 micro steps, driver output top speed is:
-     7500 RPM / 125 RPS / 45,000 deg/sec / 1,277 mm/sec
+     7500 RPM / 125 RPS / 45,000 deg/sec / 1,277 mm/sec / 8,388,096 us/sec
      Which takes second from 0 rpm to 7500 RPM at an AMAX setting of 65535 (10.29104296875 mm/s2).
    *************************************************************/
   /* Ramp mode (default)*/{
     driver.RAMPMODE(0);             //set ramp mode to positioning
     driver.VSTOP(10);              //set stop velocity to 10 steps/sec
-    driver.VSTART(10);             //set start velocity to 10 steps/sec
+    driver.VSTART(0);             //set start velocity to 10 steps/sec
 
-    driver.V1(350000);               //midpoint velocity to  steps/sec ( steps/sec)
-    driver.VMAX(636816);             //max velocity to  steps/sec ( steps/sec)
+    driver.V1(10);               //midpoint velocity to  steps/sec ( steps/sec)
+    driver.VMAX(8388096);             //max velocity to  steps/sec ( steps/sec)
 
-    driver.A1(500);               //initial accel at  steps/sec2 ( steps/sec2)
-    driver.AMAX(60300);             //max accel at  steps/sec2 ( steps/sec2)
+    driver.A1(10);               //initial accel at  steps/sec2 ( steps/sec2)
+    driver.AMAX(2000);             //max accel at  steps/sec2 ( steps/sec2)
 
-    driver.DMAX(60300);             //max deccel  steps/sec2 ( steps/sec2)
-    driver.D1(500);               //mid deccel  steps/sec2 ( steps/sec2)
+    driver.DMAX(2000);             //max deccel  steps/sec2 ( steps/sec2)
+    driver.D1(10);               //mid deccel  steps/sec2 ( steps/sec2)
   }
 
   /* Reseting drive faults and re-enabling drive */ {
@@ -245,11 +243,19 @@ void setup() {
 
 }
 
+double dt;
+int_fast32_t v, vo, accel, ao;
+
 void loop() {
-  Serial.println("mechanical load,position,velocity");
-  while (1){                    //debug message hold to know when program has exited setup routine.
-    /*Now lets start the first actual move to see if everything worked, and to hear what the stepper sounds like.*/
+  
+  Serial.println("mechanical load , position , time , velocity , accel, jerk");
+  /*Now lets start the first actual move to see if everything worked, and to hear what the stepper sounds like.*/
     if (driver.position_reached() == 1) driver.XTARGET((200 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
+    
+    v = 0;
+    vo = 0;
+    accel = 0;
+    
     while (driver.position_reached() == 0){                                                 //while in motion do nothing. This prevents the code from missing actions
       read_motor_performance();
     }
@@ -258,7 +264,8 @@ void loop() {
     while (driver.position_reached() == 0){                                                 //while in motion do nothing. This prevents the code from missing actions
       read_motor_performance();
     }
-  }
+    while (1);                    //debug message hold to know when program has exited setup routine.
+    
 } //end of loop
 //end of loop
 
@@ -308,13 +315,24 @@ void base_calc_values(void) {
 //end of base calc
 
 void read_motor_performance(void){
-  /*display measured load values (amperage coil A, amperage coil B,torque,mechanical load,position,velocity,accel,jerk)*/{
-    Serial.print(driver.sg_result());
+  /*display measured load values (amperage coil A, amperage coil B,torque,mechanical load,position,time,velocity,accel,jerk)*/{
+    Serial.print(driver.sg_result());                                   //load
+    Serial.print(" , ");
+    Serial.print((driver.XACTUAL() * .00015703125));                    //position
+    Serial.print(" , ");
+    Serial.print(dt);                                                   //time
+    Serial.print(" , ");
+    v = driver.VACTUAL();
+    Serial.print((v * .00015703125));                                 //velocity
+    Serial.print(" , ");
+    accel = ((v - vo) * (dt * dt));
+    Serial.print(accel * .00015703125);                               //accel
+    vo = v;                                                             //old velocity = current velocity
     Serial.print(",");
-    Serial.print((driver.XACTUAL() * .00015703125));
-    Serial.print(",");
-    Serial.println((driver.VACTUAL() * .00015703125));
-    delay(10);
+    Serial.println(((accel - ao) / (dt * dt * dt)) * .00015703125);                //jerk
+    ao = accel;
+    delay(1);
+    dt = dt + .001;
   }
 } //end of read performance
 //end of read performance
