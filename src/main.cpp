@@ -223,14 +223,14 @@ void setup() {
     driver.VSTOP(10);              //set stop velocity to 10 steps/sec
     driver.VSTART(0);             //set start velocity to 10 steps/sec
 
-    driver.V1(10);               //midpoint velocity to  steps/sec ( steps/sec)
-    driver.VMAX(8388096);             //max velocity to  steps/sec ( steps/sec)
+    driver.V1(600000);               //midpoint velocity to  steps/sec ( steps/sec)
+    driver.VMAX(838809);             //max velocity to  steps/sec ( steps/sec)
 
-    driver.A1(10);               //initial accel at  steps/sec2 ( steps/sec2)
-    driver.AMAX(2000);             //max accel at  steps/sec2 ( steps/sec2)
+    driver.A1(1);               //initial accel at  steps/sec2 ( steps/sec2)
+    driver.AMAX(100);             //max accel at  steps/sec2 ( steps/sec2)
 
-    driver.DMAX(2000);             //max deccel  steps/sec2 ( steps/sec2)
-    driver.D1(10);               //mid deccel  steps/sec2 ( steps/sec2)
+    driver.DMAX(500);             //max deccel  steps/sec2 ( steps/sec2)
+    driver.D1(32000);               //mid deccel  steps/sec2 ( steps/sec2)
   }
 
   /* Reseting drive faults and re-enabling drive */ {
@@ -243,26 +243,36 @@ void setup() {
 
 }
 
-double dt;
-int_fast32_t v, vo, accel, ao;
+float time, 
+      position,
+      velocity,
+      dT,
+      dx,
+      accel,
+      jerk,
+      load,
+      coil_a,
+      coil_b;
 
 void loop() {
   
-  Serial.println("mechanical load , position , time , velocity , accel, jerk");
+  //Serial.println("mechanical load , position , time , velocity , accel, jerk");
+  Serial.println("Time, Position, Velocity, dT, dx,  Accel, Jerk, Apparat load, Current Coil A, Current Coil B");
   /*Now lets start the first actual move to see if everything worked, and to hear what the stepper sounds like.*/
     if (driver.position_reached() == 1) driver.XTARGET((200 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
-    
-    v = 0;
-    vo = 0;
+    time = .001;
+    dT = 0;
+    dx = 0;
     accel = 0;
-    
+    jerk = 0;
+
     while (driver.position_reached() == 0){                                                 //while in motion do nothing. This prevents the code from missing actions
       read_motor_performance();
     }
 
     if (driver.position_reached() == 1) driver.XTARGET(0);                                  //verify motor is at position, then move motor back to starting position
     while (driver.position_reached() == 0){                                                 //while in motion do nothing. This prevents the code from missing actions
-      read_motor_performance();
+      //read_motor_performance();
     }
     while (1);                    //debug message hold to know when program has exited setup routine.
     
@@ -315,34 +325,40 @@ void base_calc_values(void) {
 //end of base calc
 
 void read_motor_performance(void){
-  /*display measured load values (amperage coil A, amperage coil B,torque,mechanical load,position,time,velocity,accel,jerk)*/{
-    Serial.print(driver.sg_result());                                   //load
+  /*display measured load values ("Time, Position, Velocity, dT, dx,  Accel, Jerk, Apparat load, Current Coil A, Current Coil B")*/{
+    position = (driver.XACTUAL() * motor_mm_per_microstep);
+    velocity = (driver.VACTUAL() * motor_mm_per_microstep);
+    dT = velocity / position;
+    dx = velocity * time;
+    accel = velocity / time;
+    jerk = accel / time;
+    load = driver.sg_result();
+    //coil_a = ;
+    //coil_b = ;
+
+    Serial.print(time,4);
     Serial.print(" , ");
-    Serial.print((driver.XACTUAL() * .00015703125));                    //position
+    Serial.print(position,4);
     Serial.print(" , ");
-    Serial.print(dt);                                                   //time
+    Serial.print(velocity,4);
     Serial.print(" , ");
-    v = driver.VACTUAL();
-    Serial.print((v * .00015703125));                                 //velocity
+    Serial.print(dT,4);
     Serial.print(" , ");
-    accel = ((v - vo) * (dt * dt));
-    Serial.print(accel * .00015703125);                               //accel
-    vo = v;                                                             //old velocity = current velocity
-    Serial.print(",");
-    Serial.println(((accel - ao) / (dt * dt * dt)) * .00015703125);                //jerk
-    ao = accel;
-    delay(1);
-    dt = dt + .001;
+    Serial.print(dx,4);
+    Serial.print(" , ");
+    Serial.print(accel,4);
+    Serial.print(" , ");
+    Serial.print(jerk,4);
+    Serial.print(" , ");
+    Serial.print(load,4);
+    Serial.print(" , ");
+    Serial.print(coil_a,4);
+    Serial.print(" , ");
+    Serial.println(coil_b,4);
+    //Serial.print(" , ");
+    time = time + .008;
   }
 } //end of read performance
 //end of read performance
-
-
-
-
-
-
-
-
 
 //end of program
