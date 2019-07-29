@@ -240,6 +240,17 @@ void setup() {
     driver.GSTAT(7);                        //clear gstat faults
   }
 
+  /* Stallguard settings and calibration */
+
+  /* Sensorless homing and Calibration */
+
+  /* Motor profiling possibly */
+
+  /* Stealth chop settings and calibration */
+
+  /* Possible motor profile verification  */
+
+  /* Possible advanced motion features (s-curve and linear advance these are TBD atm) */
 
 }
 
