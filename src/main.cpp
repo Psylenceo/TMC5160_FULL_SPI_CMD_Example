@@ -158,7 +158,22 @@ TMC5160Stepper driver = TMC5160Stepper(ss, sense_resistor); //we are also tellin
    the function and everything inside the function below the main loop
  ***********************************************************/
 void base_calc_values(void);                     //prototype, but this will show what the calculations above result in as initial values
-void read_motor_performance(void);                 //prototype function to read only the specific register address from the TMC5160
+void read_motor_performance(void);               //prototype function to read only the specific register address from the TMC5160
+void Ramp_settings(int units, double vstart, double a1, double v1, double amax, double vmax, double dmax, double d1, double vstop);           //prototype function to select and enter the units of your choice instead of just counts
+
+double time,                                      //variable to keep track of the time between motor performance samples
+      position,                                  //variable to keep track of the position between motor performance samples
+      velocity,                                  //variable to keep track of the velocity between motor performance samples
+      old_velocity,                              //testing out better accel and jerk measurement
+      dT,                                        //variable to keep track of the time difference between the arduino and the drivers time between motor performance samples   
+      dx,                                        //variable to keep track of the position difference between arduino and driver between motor performance samples
+      accel,                                     //variable for calculated acceleration 
+      old_accel,                                 //testing out better accel and jerk measurement
+      jerk,                                      //variable for calculated jerk
+      tsteps,                                    //time between steps
+      load,                                      //variable to keep track of the mechanical load between motor performance samples 
+      coil_a,                                    //variable to keep track of the coil a current between motor performance samples
+      coil_b;                                    //variable to keep track of the coil a current between motor performance samples
 
 void setup() {
   /* start up uart config as PC interface */{
@@ -177,6 +192,7 @@ void setup() {
     pinMode(drv_en, OUTPUT);                //set drv enable pin as out put
   }
 
+  driver.toff(0);                           //clear status bits in driver
   digitalWrite(drv_en, LOW);                //enable the driver so that we can send the initial register values
 
   /*Initial settings for basic SPI command stepper drive no other functions enabled*/ {
@@ -220,17 +236,7 @@ void setup() {
    *************************************************************/
   /* Ramp mode (default)*/{
     driver.RAMPMODE(0);             //set ramp mode to positioning
-    driver.VSTOP(10);              //set stop velocity to 10 steps/sec
-    driver.VSTART(0);             //set start velocity to 10 steps/sec
-
-    driver.V1(600000);               //midpoint velocity to  steps/sec ( steps/sec)
-    driver.VMAX(838809);             //max velocity to  steps/sec ( steps/sec)
-
-    driver.A1(1);               //initial accel at  steps/sec2 ( steps/sec2)
-    driver.AMAX(100);             //max accel at  steps/sec2 ( steps/sec2)
-
-    driver.DMAX(500);             //max deccel  steps/sec2 ( steps/sec2)
-    driver.D1(32000);               //mid deccel  steps/sec2 ( steps/sec2)
+    Ramp_settings(1,0,0,0,5,25,5,0,0);
   }
 
   /* Reseting drive faults and re-enabling drive */ {
@@ -240,26 +246,32 @@ void setup() {
     driver.GSTAT(7);                        //clear gstat faults
   }
 
+  /**********************************************************************
+   *  Start using stallguard to detect skipped steps and stalls
+   * 
+   *  We will also try and use the stallguard feature to perform motor
+   *  characterization curves. So that later we can optimize the motors
+   *  acceleration, deceleration, and velocity points in for the ramp generator.
+   * **************************************************************************/
+  
+  /* stallguard settings*/
+  //driver.TCOOLTHRS(300);
+  //driver.sg_stop(0);
+  driver.sgt(5);
+  driver.sfilt(0);
+  if(driver.status_sg() == 1 || driver.stallguard() == 1) {
+    driver.RAMP_STAT();
+    driver.DRV_STATUS();
+  }
 
 }
-
-float time, 
-      position,
-      velocity,
-      dT,
-      dx,
-      accel,
-      jerk,
-      load,
-      coil_a,
-      coil_b;
 
 void loop() {
   
   //Serial.println("mechanical load , position , time , velocity , accel, jerk");
-  Serial.println("Time, Position, Velocity, dT, dx,  Accel, Jerk, Apparat load, Current Coil A, Current Coil B");
+  Serial.println("Time, Position, Velocity, dT, dx,  Accel, Jerk, Tsteps, Apparat load, Current Coil A, Current Coil B");
   /*Now lets start the first actual move to see if everything worked, and to hear what the stepper sounds like.*/
-    if (driver.position_reached() == 1) driver.XTARGET((200 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
+    if (driver.position_reached() == 1) driver.XTARGET((220 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
     time = .001;
     dT = 0;
     dx = 0;
@@ -268,11 +280,12 @@ void loop() {
 
     while (driver.position_reached() == 0){                                                 //while in motion do nothing. This prevents the code from missing actions
       read_motor_performance();
+      if(driver.sg_result() == 0) driver.XTARGET(driver.XACTUAL());
     }
 
     if (driver.position_reached() == 1) driver.XTARGET(0);                                  //verify motor is at position, then move motor back to starting position
     while (driver.position_reached() == 0){                                                 //while in motion do nothing. This prevents the code from missing actions
-      //read_motor_performance();
+      read_motor_performance();
     }
     while (1);                    //debug message hold to know when program has exited setup routine.
     
@@ -330,9 +343,12 @@ void read_motor_performance(void){
     velocity = (driver.VACTUAL() * motor_mm_per_microstep);
     dT = velocity / position;
     dx = velocity * time;
-    accel = velocity / time;
-    jerk = accel / time;
-    load = driver.sg_result();
+    accel = velocity  / time;
+    jerk = accel  / time;
+    tsteps = driver.TSTEP();
+    load = constrain(driver.sg_result();,0,1000)
+    old_velocity = velocity;
+    old_accel = accel;
     //coil_a = ;
     //coil_b = ;
 
@@ -350,6 +366,8 @@ void read_motor_performance(void){
     Serial.print(" , ");
     Serial.print(jerk,4);
     Serial.print(" , ");
+    if( tsteps < 300) Serial.print(tsteps);
+    Serial.print(" , ");
     Serial.print(load,4);
     Serial.print(" , ");
     Serial.print(coil_a,4);
@@ -360,5 +378,59 @@ void read_motor_performance(void){
   }
 } //end of read performance
 //end of read performance
+
+
+
+void Ramp_settings(int units, double vstart, double a1, double v1, double amax, double vmax, double dmax, double d1, double vstop){
+  double scale_value;
+
+  uint32_t scaled_vstart,
+           scaled_a1,
+           scaled_v1,
+           scaled_amax,
+           scaled_vmax,
+           scaled_dmax,
+           scaled_d1,
+           scaled_vstop; 
+
+  switch(units){
+    case 1: {scale_value = motor_mm_per_microstep; break;}           //mm per second
+    case 2: {scale_value = motor_mm_per_microstep * 60; break;}      //mm per minute
+    case 3: {scale_value = motor_mm_per_microstep / 1000; break;}    // meters per second
+    //case 4: {scale_value = }//RPS
+    //case 5: {scale_value = }//RPM
+    default: {scale_value = 1; break; }//microstep counts
+  }      
+
+  scaled_vstart = constrain((vstart / scale_value), 0, 262143);
+  scaled_a1 = constrain((a1 / scale_value), 0, 65535);
+  scaled_v1 = constrain((v1 / scale_value), 0, 1048575);
+  scaled_amax = constrain((amax / scale_value), 0, 65535);
+  scaled_vmax = constrain((vmax / scale_value), 0, 8388096);
+  scaled_dmax = constrain((dmax / scale_value), 0, 65535);
+  scaled_d1 = constrain((d1 / scale_value), 0, 65535);
+  scaled_vstop = constrain((vstop / scale_value), 0, 262143);
+
+  if(scaled_vstart > scaled_vstop) scaled_vstop = scaled_vstart;
+  if(scaled_vstart > scaled_vmax) scaled_vmax = scaled_vstart;
+  if(scaled_d1 < 1) scaled_d1 = 1;
+  if(scaled_vstop < 10) scaled_vstop = 10;
+
+  driver.VSTOP(scaled_vstop);              //set stop velocity to 10 steps/sec
+  driver.VSTART(scaled_vstart);             //set start velocity to 10 steps/sec
+  
+  driver.V1(scaled_v1);               //midpoint velocity to  steps/sec ( steps/sec)
+  driver.VMAX(scaled_vmax);             //max velocity to  steps/sec ( steps/sec)
+
+  driver.A1(scaled_a1);               //initial accel at  steps/sec2 ( steps/sec2)
+  driver.AMAX(scaled_amax);             //max accel at  steps/sec2 ( steps/sec2)
+
+  driver.DMAX(scaled_dmax);             //max deccel  steps/sec2 ( steps/sec2)
+  driver.D1(scaled_d1);               //mid deccel  steps/sec2 ( steps/sec2)
+}       
+
+
+
+
 
 //end of program
