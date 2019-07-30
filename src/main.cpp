@@ -264,10 +264,13 @@ void setup() {
    * **************************************************************************/
   
   /* stallguard settings*/
-  //driver.TCOOLTHRS(300);
-  driver.sg_stop(1);
-  driver.sgt(5);
+  //driver.TCOOLTHRS(300);                            //Set the tstep value for when stall is to be active (higher speed = lower tsteps, lower speed higher tsteps)
+  driver.sg_stop(1);                                  //enables an internal driver stop when sg_result = 0, resulting in a stall condition
+  driver.sgt(5);                                      //offsets sg_result to fine tune when stall fault is triggered
   driver.sfilt(0);
+
+
+
   if (driver.position_reached() == 1) driver.XTARGET((-220 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
   while(homing_count < 5){
     while(driver.position_reached() == 0){
