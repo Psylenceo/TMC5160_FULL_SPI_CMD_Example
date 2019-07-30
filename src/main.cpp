@@ -175,10 +175,11 @@ double time,                                      //variable to keep track of th
       coil_a,                                    //variable to keep track of the coil a current between motor performance samples
       coil_b;                                    //variable to keep track of the coil a current between motor performance samples
 
+long pos_home,
+     neg_home;
+
 int homing_calibrate[10],                        //homing points
-    homing_count,
-    pos_home,
-    neg_home;
+    homing_count;
 
 void setup() {
   /* start up uart config as PC interface */{
@@ -264,25 +265,45 @@ void setup() {
   
   /* stallguard settings*/
   //driver.TCOOLTHRS(300);
-  driver.sg_stop(0);
+  driver.sg_stop(1);
   driver.sgt(5);
   driver.sfilt(0);
-  if (driver.position_reached() == 1) driver.XTARGET((220 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
-  while(homing_count < 4){
+  if (driver.position_reached() == 1) driver.XTARGET((-220 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
+  while(homing_count < 5){
     while(driver.position_reached() == 0){
       if(/*driver.stallguard() == 1 ||*/ (driver.VACTUAL() > 100000 && driver.sg_result() == 0)){
         homing_calibrate[homing_count] = driver.XACTUAL();
         driver.XTARGET(homing_calibrate[homing_count]);
+        homing_count++;
+        driver.sg_stop(0);
+        delay(50);
+        driver.sg_stop(1);
+        driver.XTARGET(homing_calibrate[homing_count] + 50);
+        while(driver.position_reached() == 0);
+        if (driver.position_reached() == 1) driver.XTARGET((-60 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
+      }
+    }
+
+    neg_home = ((homing_calibrate[0] + homing_calibrate[1] + homing_calibrate[2] +homing_calibrate[3] + homing_calibrate[4]) / 5);
+
+    driver.XACTUAL(neg_home);
+
+    if (driver.position_reached() == 1) driver.XTARGET((220 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
+    while(driver.position_reached() == 0){
+      if(/*driver.stallguard() == 1 ||*/ (driver.VACTUAL() > 100000 && driver.sg_result() == 0)){
+        homing_calibrate[homing_count] = driver.XACTUAL();
+        driver.XTARGET(homing_calibrate[homing_count]);
+        homing_count++;
         driver.sg_stop(0);
         delay(50);
         driver.sg_stop(1);
         driver.XTARGET(homing_calibrate[homing_count] - 50);
         while(driver.position_reached() == 0);
-        if (driver.position_reached() == 1) driver.XTARGET((220 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
+        if (driver.position_reached() == 1) driver.XTARGET((60 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
       }
     }
 
-    //if (driver.position_reached() == 1) driver.XTARGET((220 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
+    pos_home = ((homing_calibrate[5] + homing_calibrate[6] + homing_calibrate[7] +homing_calibrate[8] + homing_calibrate[9]) / 5);
   }
 
 }
