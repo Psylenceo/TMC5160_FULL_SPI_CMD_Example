@@ -175,6 +175,11 @@ double time,                                      //variable to keep track of th
       coil_a,                                    //variable to keep track of the coil a current between motor performance samples
       coil_b;                                    //variable to keep track of the coil a current between motor performance samples
 
+int homing_calibrate[10],                        //homing points
+    homing_count,
+    pos_home,
+    neg_home;
+
 void setup() {
   /* start up uart config as PC interface */{
     Serial.begin(115200);                   //serial com at 115200 baud
@@ -252,16 +257,32 @@ void setup() {
    *  We will also try and use the stallguard feature to perform motor
    *  characterization curves. So that later we can optimize the motors
    *  acceleration, deceleration, and velocity points in for the ramp generator.
+   * 
+   * We would normally use tcoolthrs and sgstop, however we cannot reset sg_stop 
+   * unless we power down the driver currently. Due to a bug with the library.
    * **************************************************************************/
   
   /* stallguard settings*/
   //driver.TCOOLTHRS(300);
-  //driver.sg_stop(0);
+  driver.sg_stop(0);
   driver.sgt(5);
   driver.sfilt(0);
-  if(driver.status_sg() == 1 || driver.stallguard() == 1) {
-    driver.RAMP_STAT();
-    driver.DRV_STATUS();
+  if (driver.position_reached() == 1) driver.XTARGET((220 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
+  while(homing_count < 4){
+    while(driver.position_reached() == 0){
+      if(/*driver.stallguard() == 1 ||*/ (driver.VACTUAL() > 100000 && driver.sg_result() == 0)){
+        homing_calibrate[homing_count] = driver.XACTUAL();
+        driver.XTARGET(homing_calibrate[homing_count]);
+        driver.sg_stop(0);
+        delay(50);
+        driver.sg_stop(1);
+        driver.XTARGET(homing_calibrate[homing_count] - 50);
+        while(driver.position_reached() == 0);
+        if (driver.position_reached() == 1) driver.XTARGET((220 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
+      }
+    }
+
+    //if (driver.position_reached() == 1) driver.XTARGET((220 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
   }
 
 }
@@ -271,7 +292,7 @@ void loop() {
   //Serial.println("mechanical load , position , time , velocity , accel, jerk");
   Serial.println("Time, Position, Velocity, dT, dx,  Accel, Jerk, Tsteps, Apparat load, Current Coil A, Current Coil B");
   /*Now lets start the first actual move to see if everything worked, and to hear what the stepper sounds like.*/
-    if (driver.position_reached() == 1) driver.XTARGET((220 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
+    if (driver.position_reached() == 1) driver.XTARGET((200 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
     time = .001;
     dT = 0;
     dx = 0;
@@ -280,7 +301,6 @@ void loop() {
 
     while (driver.position_reached() == 0){                                                 //while in motion do nothing. This prevents the code from missing actions
       read_motor_performance();
-      if(driver.sg_result() == 0) driver.XTARGET(driver.XACTUAL());
     }
 
     if (driver.position_reached() == 1) driver.XTARGET(0);                                  //verify motor is at position, then move motor back to starting position
@@ -346,7 +366,7 @@ void read_motor_performance(void){
     accel = velocity  / time;
     jerk = accel  / time;
     tsteps = driver.TSTEP();
-    load = constrain(driver.sg_result();,0,1000)
+    load = constrain(driver.sg_result(),0,1000);
     old_velocity = velocity;
     old_accel = accel;
     //coil_a = ;
