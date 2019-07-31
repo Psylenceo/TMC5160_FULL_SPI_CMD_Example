@@ -107,9 +107,9 @@
    Using the procedure described above, each micro step of the motor will move a makergear m2 print bed spider arm
    .00015703125mm or .157 micrometers per micro step.
  *****************************************************************/
-#define base_reference_distance 0
-#define distance_thousand_steps 0
-#define motor_mm_per_microstep .00015703125           //Change this value to match your motor!!!!
+#define base_reference_distance 0                     //distance from solid non moving reference point a point on the moving object when object is at origin
+#define distance_thousand_steps 0                     //distance from non moving reference point to same point on moving object when the object has been moved 1000 microsteps
+#define motor_mm_per_microstep .00015703125           //this value will become calculated after the two above values have been measured. (currently using a set value found previously)
 
 /************************************************************
    Now we need to calculate some important values for inital register settings in the driver. If you want to adjust any
@@ -132,7 +132,7 @@
 
 #define nominal_amps (((motor_milliamps * motor_voltage) / supply_voltage) * 1.0)                                //calculate the voltage based curent
 #define cbemf (motor_hold_torque / (2 * nominal_amps))                                                           //calc the back emf constant of the motor
-#define microsteps_per_rev ((motor_us_counts *  drv_microstep_res))
+#define microsteps_per_rev ((motor_us_counts *  drv_microstep_res))                                              //calculate the number of microsteps per rotation
 #define drv_pwm_grad ((cbemf * 2 * pi * ((drv_clock * 1.46) / (supply_voltage * microsteps_per_rev))))           //calculate the pwm gradient
 #define drv_pwm_ofs ((374 * motor_resistance * (nominal_amps / 1000)) / supply_voltage)                          //calculate teh pwm offest
 #define driv_toff ((((100000 / drv_chop_freq) * drv_decay_percent * .5) * drv_clock - 12) / 3200000)             //calculate the toff of the motor, currently does not calculate value
@@ -176,10 +176,10 @@ double time,                                      //variable to keep track of th
       coil_b;                                    //variable to keep track of the coil a current between motor performance samples
 
 long homing_calibrate[10],                        //homing points
-     pos_home,
-     neg_home;
+     pos_home,                                    //positive direction hard stop position
+     neg_home;                                    //negative direction hard stop postion
 
-int homing_count;
+int homing_count;                                 //how many times the end stop postion has been checked
 
 void setup() {
   /* start up uart config as PC interface */{
@@ -333,9 +333,11 @@ void loop() {
 
 /************************************************************
    Actual base calc values function;
+
    This function sends the calculated initial values via uart
    to either the arduino monitor, a terminal program, or anything you want
    that uses uart.
+
    The use of the arduino F() function is critical! to memory usage, without using the F() function,
    all the serial data constant strings would eat up ALL of an arduino megas sram memory.
    With the F() function the over code uses less than 10% of the megas SRAM.
@@ -376,22 +378,28 @@ void base_calc_values(void) {
 } //end of base calc
 //end of base calc
 
+/*****************************************************************
+ *  Read motor performance is really just used to see what data the driver is reporting.
+ *  And is meant to be plotted, preferably on something better than arduino's serial plotter.
+ *  Hence why this codes git repo includes serialplot. As it is a much more powerful plotter,
+ *  that can export a csv data file from the graph instead of having to run the program twice, once for csv and once for realtime plotting.
+ * *********************************************************************/
 void read_motor_performance(void){
   /*display measured load values ("Time, Position, Velocity, dT, dx,  Accel, Jerk, Apparat load, Current Coil A, Current Coil B")*/{
-    position = (driver.XACTUAL() * motor_mm_per_microstep);
-    velocity = (driver.VACTUAL() * motor_mm_per_microstep);
-    dT = velocity / position;
-    dx = velocity * time;
-    accel = velocity  / time;
-    jerk = accel  / time;
-    tsteps = driver.TSTEP();
-    load = constrain(driver.sg_result(),0,1000);
-    old_velocity = velocity;
-    old_accel = accel;
-    //coil_a = ;
-    //coil_b = ;
+    position = (driver.XACTUAL() * motor_mm_per_microstep);                 //read motor position scale it to mm, then store it
+    velocity = (driver.VACTUAL() * motor_mm_per_microstep);                 //read motor velocity, scale it to mm, then store it
+    dT = velocity / position;                                               //derive the time in between each position and velocity request
+    dx = velocity * time;                                                   //derive the distance the driver sees compared to the time increments in the CPU
+    accel = velocity  / time;                                               //calculate the acceleration based on the time step of the CPU's code execution
+    jerk = accel  / time;                                                   //calculate the jerk based on the time step of the  CPU's code execution
+    tsteps = driver.TSTEP();                                                //record the time in between each step of the motor
+    load = constrain(driver.sg_result(),0,1000);                            //read motor load and limit its max value to 1000 and store result
+    old_velocity = velocity;                                                //storing velocities for checking delta velocity
+    old_accel = accel;                                                      //storing accelerations for checking delta acceleration
+    //coil_a = ;                                                            //current for coil A
+    //coil_b = ;                                                            //current for coil B
 
-    Serial.print(time,4);
+    Serial.print(time,4);                                                   //print out each variable with 4 decimal precision and a comma between each
     Serial.print(" , ");
     Serial.print(position,4);
     Serial.print(" , ");
@@ -405,7 +413,7 @@ void read_motor_performance(void){
     Serial.print(" , ");
     Serial.print(jerk,4);
     Serial.print(" , ");
-    if( tsteps < 300) Serial.print(tsteps);
+    if( tsteps < 300) Serial.print(tsteps);                                 //only print tstep when it is < 300 otherwise it autoscales the result of the data too small in graphs
     Serial.print(" , ");
     Serial.print(load,4);
     Serial.print(" , ");
@@ -413,35 +421,54 @@ void read_motor_performance(void){
     Serial.print(" , ");
     Serial.println(coil_b,4);
     //Serial.print(" , ");
-    time = time + .008;
+    time = time + .008;                                                     //increment cpu time step
   }
 } //end of read performance
 //end of read performance
 
 
 
+/*****************************************************************
+ * Ramp setting functions purpose is to have one function call that sets all the ramp generators values
+ * as well as setting how the users input is scaled. Because previously a user would either have to determine
+ * a unit of measure they wanted to move the motor, calculate the scaling from micro step count to the desired units,
+ * then calculate the counts per amount of units and enter each of those calculated values for accel deccel and velocity values
+ *  or the user would have to add a scalar value for each function. then when the user wanted to change the
+ * units they would have to change each scalar value.
+ * 
+ * Now with this function a user just has to eneter a value matching what unit conversion they want and put a value in
+ * each parameter field in the desired units then presto. All the ramp settings are set for the correct number of counts without
+ * all the tweaking and calcualtions.
+ * 
+ * Also this alleviates the user from having to double check certain parameter settings are within the datasheets recommendations,
+ * such as vstop cannot be below 10 counts or that d1 must be set to >1 count. Now this function will limit or adjust other
+ * settings to maintain recommended operations.
+ * 
+ * This code also constrains all input variables after scaling to be within register limits, this will help prevent any issues
+ * of values rolling over resulting in either negative numbers of insanely large non accceptable values being sent to the driver.
+ * *************************************************************/
 void Ramp_settings(int units, double vstart, double a1, double v1, double amax, double vmax, double dmax, double d1, double vstop){
-  double scale_value;
+  double scale_value;                                               //variable to store scaling value
 
-  uint32_t scaled_vstart,
-           scaled_a1,
-           scaled_v1,
-           scaled_amax,
-           scaled_vmax,
-           scaled_dmax,
-           scaled_d1,
-           scaled_vstop; 
+  uint32_t scaled_vstart,                                           //vstart value after scaling
+           scaled_a1,                                               //a1 value after scaling
+           scaled_v1,                                               //v1 value after scaling
+           scaled_amax,                                             //amax value after scaling
+           scaled_vmax,                                             //vmax value after scaling
+           scaled_dmax,                                             //dmax value after scaling
+           scaled_d1,                                               //d1 value after scaling
+           scaled_vstop;                                            //vstop after scaling
 
   switch(units){
     case 1: {scale_value = motor_mm_per_microstep; break;}           //mm per second
     case 2: {scale_value = motor_mm_per_microstep * 60; break;}      //mm per minute
-    case 3: {scale_value = motor_mm_per_microstep / 1000; break;}    // meters per second
+    case 3: {scale_value = motor_mm_per_microstep / 1000; break;}    //meters per second
     //case 4: {scale_value = }//RPS
     //case 5: {scale_value = }//RPM
-    default: {scale_value = 1; break; }//microstep counts
+    default: {scale_value = 1; break; }                              //microstep counts
   }      
 
-  scaled_vstart = constrain((vstart / scale_value), 0, 262143);
+  scaled_vstart = constrain((vstart / scale_value), 0, 262143);      //limit each value to within the registers limits
   scaled_a1 = constrain((a1 / scale_value), 0, 65535);
   scaled_v1 = constrain((v1 / scale_value), 0, 1048575);
   scaled_amax = constrain((amax / scale_value), 0, 65535);
@@ -450,10 +477,10 @@ void Ramp_settings(int units, double vstart, double a1, double v1, double amax, 
   scaled_d1 = constrain((d1 / scale_value), 0, 65535);
   scaled_vstop = constrain((vstop / scale_value), 0, 262143);
 
-  if(scaled_vstart > scaled_vstop) scaled_vstop = scaled_vstart;
-  if(scaled_vstart > scaled_vmax) scaled_vmax = scaled_vstart;
-  if(scaled_d1 < 1) scaled_d1 = 1;
-  if(scaled_vstop < 10) scaled_vstop = 10;
+  if(scaled_vstart > scaled_vstop) scaled_vstop = scaled_vstart;      //ensure vstop is > or = to vstart
+  if(scaled_vstart > scaled_vmax) scaled_vmax = scaled_vstart;        //ensure vmax is > or = to vstart
+  if(scaled_d1 < 1) scaled_d1 = 1;                                    //ensure d1 i not below 1
+  if(scaled_vstop < 10) scaled_vstop = 10;                            //ensure vstop is no less than 10
 
   driver.VSTOP(scaled_vstop);              //set stop velocity to 10 steps/sec
   driver.VSTART(scaled_vstart);             //set start velocity to 10 steps/sec
@@ -466,8 +493,8 @@ void Ramp_settings(int units, double vstart, double a1, double v1, double amax, 
 
   driver.DMAX(scaled_dmax);             //max deccel  steps/sec2 ( steps/sec2)
   driver.D1(scaled_d1);               //mid deccel  steps/sec2 ( steps/sec2)
-}       
-
+}  //end of ramp setting     
+//end of ramp setting
 
 
 
