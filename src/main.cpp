@@ -241,9 +241,11 @@ void setup() {
   }
 
   /* Stallguard settings and calibration */
+      //stallguard stop work around works fine and is done
 
   /* Sensorless homing and Calibration */
-
+      //Sensorless homing code works mostly having trouble with setting a correct origin and getting the move to position 0 to work correctly
+      
   /* Motor profiling possibly */
 
   /* Stealth chop settings and calibration */
