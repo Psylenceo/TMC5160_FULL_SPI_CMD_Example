@@ -267,94 +267,64 @@ void setup() {
   //driver.TCOOLTHRS(300);                            //Set the tstep value for when stall is to be active (higher speed = lower tsteps, lower speed higher tsteps)
   driver.sg_stop(1);                                  //enables an internal driver stop when sg_result = 0, resulting in a stall condition
   driver.sgt(5);                                      //offsets sg_result to fine tune when stall fault is triggered
-  driver.sfilt(0);
+  driver.sfilt(0);                                    //Enabled or disables filtering of sg_result measurement
 
-  driver.XACTUAL(0);
-  Serial.println(driver.XACTUAL());                               //0
 
-  driver.XTARGET((100 / motor_mm_per_microstep));
-  while(driver.position_reached() == 0);
-  Serial.println(driver.XACTUAL() * motor_mm_per_microstep);      //100
-  delay(1000);
-  driver.XACTUAL(50 / motor_mm_per_microstep);
-  Serial.println(driver.XACTUAL() * motor_mm_per_microstep);      //50
-  delay(1000);
-  while(driver.position_reached() == 0);
-  driver.XTARGET((100 / motor_mm_per_microstep));
-  while(driver.position_reached() == 0);
-  Serial.println(driver.XACTUAL() * motor_mm_per_microstep);     //100 
-  driver.XTARGET((0 / motor_mm_per_microstep));
-  while(driver.position_reached() == 0);
-  Serial.println(driver.XACTUAL() * motor_mm_per_microstep);     //0
-  driver.XACTUAL(-100 / motor_mm_per_microstep);
-  Serial.println(driver.XACTUAL() * motor_mm_per_microstep);
-  driver.XTARGET((100 / motor_mm_per_microstep));
-  while(driver.position_reached() == 0);
-  Serial.println(driver.XACTUAL() * motor_mm_per_microstep); 
-
-  /*while(homing_count < 5){
-    driver.XTARGET((-220 / motor_mm_per_microstep));
-    while(driver.position_reached() == 0){
-       if((driver.VACTUAL() < -150000 || driver.VACTUAL() > 150000) && driver.sg_result() == 0){
-        //driver.VMAX(0);
-        homing_calibrate[homing_count] = driver.XACTUAL();
-        homing_count++;
-        //driver.XACTUAL(0);
-        driver.XTARGET((10 / motor_mm_per_microstep));
-        while(driver.position_reached() == 0);
+  /* Sensorless homing routine */
+  while(homing_count < 5){
+    driver.XTARGET((-220 / motor_mm_per_microstep));                                                  //move motor in negative direction further than it can
+    while(driver.position_reached() == 0){                                                            //while in motion monitor sg_result
+       if((driver.VACTUAL() < -150000 || driver.VACTUAL() > 150000) && driver.sg_result() == 0){      //as long as motor is moving > 20mm/s, if sg_result =0 motor hit hard stop
+        homing_calibrate[homing_count] = driver.XACTUAL();                                            //store motor position
+        homing_count++;                                                                               //increment sample count
+        driver.XTARGET((10 / motor_mm_per_microstep));                                                //move motor to +10mm above origin
+        while(driver.position_reached() == 0);                                                        //wait for motion complete
        }
     }
   }
 
-  neg_home = ((homing_calibrate[0] + homing_calibrate[1] + homing_calibrate[2] +homing_calibrate[3] + homing_calibrate[4]) / 5);
-
-  Serial.println(neg_home * motor_mm_per_microstep);
-  driver.XACTUAL(0 - neg_home);
+  neg_home = ((homing_calibrate[0] + homing_calibrate[1] + homing_calibrate[2] +homing_calibrate[3] + homing_calibrate[4]) / 5);    //average position samples
+  
+  driver.XACTUAL((0 - neg_home) * 2);   //not sure how to explain, also not sure if this is exactly how I want it to work
 
   while(homing_count < 10){
-    driver.XTARGET((220 / motor_mm_per_microstep));
-    while(driver.position_reached() == 0){
-       if((driver.VACTUAL() < -150000 || driver.VACTUAL() > 150000) && driver.sg_result() == 0){
-        driver.VMAX(0);
-        homing_calibrate[homing_count] = driver.XACTUAL();
-        //Serial.println(homing_calibrate[homing_count] * motor_mm_per_microstep);
-        //delay(1000);
-        Ramp_settings(1,0,0,0,5,25,5,0,0);
-        driver.XTARGET((homing_calibrate[homing_count] - (10 / motor_mm_per_microstep))) ;
-        homing_count++;
-        while(driver.position_reached() == 0);
+    driver.XTARGET((220 / motor_mm_per_microstep));                                                   //move motor positive beyond known hard stop
+    while(driver.position_reached() == 0){                                                            //while in motion monitor sg_result
+       if((driver.VACTUAL() < -150000 || driver.VACTUAL() > 150000) && driver.sg_result() == 0){      //as long as motor is moving > 20mm/s, if sg_result =0 motor hit hard stop
+        driver.VMAX(0);                                                                               //stop motion. This is needed as testing has shown on verticle axis will drop
+        homing_calibrate[homing_count] = driver.XACTUAL();                                            //store motor position
+        Ramp_settings(1,0,0,0,5,25,5,0,0);                                                            //reset ramp settings, specifically max velocity
+        driver.XTARGET((homing_calibrate[homing_count] - (10 / motor_mm_per_microstep))) ;            //move motor to -10mm below detected hard stop
+        homing_count++;                                                                               //increment sample count
+        while(driver.position_reached() == 0);                                                        //wait for motion complete
        }
     }
   }
 
-  pos_home = ((homing_calibrate[5] + homing_calibrate[6] + homing_calibrate[7] +homing_calibrate[8] + homing_calibrate[9]) / 5);
-  
-  Serial.println(pos_home * motor_mm_per_microstep);
-  //driver.XACTUAL(pos_home);
-
-  driver.XTARGET((0 / motor_mm_per_microstep));*/
-  while(1);
+  pos_home = ((homing_calibrate[5] + homing_calibrate[6] + homing_calibrate[7] +homing_calibrate[8] + homing_calibrate[9]) / 5);      //average position samples
+    
+  driver.XTARGET((0 / motor_mm_per_microstep));             //move motor back to origin (as set by neg_home)
+  while(1);                                                 //stop code
 }
 
 void loop() {
   
-  //Serial.println("mechanical load , position , time , velocity , accel, jerk");
-  //Serial.println("Time, Position, Velocity, dT, dx,  Accel, Jerk, Tsteps, Apparat load, Current Coil A, Current Coil B");
+  Serial.println("Time, Position, Velocity, dT, dx,  Accel, Jerk, Tsteps, Apparat load, Current Coil A, Current Coil B");
   /*Now lets start the first actual move to see if everything worked, and to hear what the stepper sounds like.*/
     if (driver.position_reached() == 1) driver.XTARGET((200 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
-    time = .001;
-    dT = 0;
-    dx = 0;
-    accel = 0;
-    jerk = 0;
+    time = .001;                //set initial time to 1ms
+    dT = 0;                     //make sure delta time is 0
+    dx = 0;                     //reset delta x to 0
+    accel = 0;                  //reset accel storage variable to 0
+    jerk = 0;                   //reset jerk storage variable to 0
 
     while (driver.position_reached() == 0){                                                 //while in motion do nothing. This prevents the code from missing actions
-      //read_motor_performance();
+      read_motor_performance();                                                             //while in motion do only what's inside this loop
     }
 
     if (driver.position_reached() == 1) driver.XTARGET(0);                                  //verify motor is at position, then move motor back to starting position
-    while (driver.position_reached() == 0){                                                 //while in motion do nothing. This prevents the code from missing actions
-      //read_motor_performance();
+    while (driver.position_reached() == 0){                                                 //while in motion do only what's inside this loop
+      read_motor_performance();
     }
     while (1);                    //debug message hold to know when program has exited setup routine.
     
