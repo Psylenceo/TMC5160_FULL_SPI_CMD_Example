@@ -163,6 +163,7 @@ void Ramp_settings(int units, double vstart, double a1, double v1, double amax, 
 
 double time,                                      //variable to keep track of the time between motor performance samples
       position,                                  //variable to keep track of the position between motor performance samples
+      old_position,
       velocity,                                  //variable to keep track of the velocity between motor performance samples
       old_velocity,                              //testing out better accel and jerk measurement
       dT,                                        //variable to keep track of the time difference between the arduino and the drivers time between motor performance samples   
@@ -170,6 +171,7 @@ double time,                                      //variable to keep track of th
       accel,                                     //variable for calculated acceleration 
       old_accel,                                 //testing out better accel and jerk measurement
       jerk,                                      //variable for calculated jerk
+      old_jerk,
       tsteps,                                    //time between steps
       load,                                      //variable to keep track of the mechanical load between motor performance samples 
       coil_a,                                    //variable to keep track of the coil a current between motor performance samples
@@ -266,18 +268,20 @@ void setup() {
   /* stallguard settings*/
   //driver.TCOOLTHRS(300);                            //Set the tstep value for when stall is to be active (higher speed = lower tsteps, lower speed higher tsteps)
   driver.sg_stop(1);                                  //enables an internal driver stop when sg_result = 0, resulting in a stall condition
-  driver.sgt(5);                                      //offsets sg_result to fine tune when stall fault is triggered
+  driver.sgt(1);                                      //offsets sg_result to fine tune when stall fault is triggered
   driver.sfilt(0);                                    //Enabled or disables filtering of sg_result measurement
 
 
   /* Sensorless homing routine */
+  driver.XTARGET((25 / motor_mm_per_microstep));
+  while(driver.position_reached() == 0);
   while(homing_count < 5){
-    driver.XTARGET((-220 / motor_mm_per_microstep));                                                  //move motor in negative direction further than it can
+    driver.XTARGET((-300 / motor_mm_per_microstep));                                                  //move motor in negative direction further than it can
     while(driver.position_reached() == 0){                                                            //while in motion monitor sg_result
        if((driver.VACTUAL() < -150000 || driver.VACTUAL() > 150000) && driver.sg_result() == 0){      //as long as motor is moving > 20mm/s, if sg_result =0 motor hit hard stop
         homing_calibrate[homing_count] = driver.XACTUAL();                                            //store motor position
         homing_count++;                                                                               //increment sample count
-        driver.XTARGET((10 / motor_mm_per_microstep));                                                //move motor to +10mm above origin
+        driver.XTARGET(homing_calibrate[homing_count] + (10 / motor_mm_per_microstep));                                                //move motor to +10mm above origin
         while(driver.position_reached() == 0);                                                        //wait for motion complete
        }
     }
@@ -285,10 +289,12 @@ void setup() {
 
   neg_home = ((homing_calibrate[0] + homing_calibrate[1] + homing_calibrate[2] +homing_calibrate[3] + homing_calibrate[4]) / 5);    //average position samples
   
-  driver.XACTUAL((0 - neg_home) * 2);   //not sure how to explain, also not sure if this is exactly how I want it to work
+  driver.XACTUAL((0 - neg_home));   //not sure how to explain, also not sure if this is exactly how I want it to work
 
+  driver.sgt(5);                                      //offsets sg_result to fine tune when stall fault is triggered
+  
   while(homing_count < 10){
-    driver.XTARGET((220 / motor_mm_per_microstep));                                                   //move motor positive beyond known hard stop
+    driver.XTARGET((300 / motor_mm_per_microstep));                                                   //move motor positive beyond known hard stop
     while(driver.position_reached() == 0){                                                            //while in motion monitor sg_result
        if((driver.VACTUAL() < -150000 || driver.VACTUAL() > 150000) && driver.sg_result() == 0){      //as long as motor is moving > 20mm/s, if sg_result =0 motor hit hard stop
         driver.VMAX(0);                                                                               //stop motion. This is needed as testing has shown on verticle axis will drop
@@ -304,11 +310,11 @@ void setup() {
   pos_home = ((homing_calibrate[5] + homing_calibrate[6] + homing_calibrate[7] +homing_calibrate[8] + homing_calibrate[9]) / 5);      //average position samples
     
   driver.XTARGET((0 / motor_mm_per_microstep));             //move motor back to origin (as set by neg_home)
-  while(1);                                                 //stop code
+  while(driver.position_reached() == 0);                                                 //stop code
 }
 
 void loop() {
-  
+  Ramp_settings(1,0,0,0,5,115,5,0,0);
   Serial.println("Time, Position, Velocity, dT, dx,  Accel, Jerk, Tsteps, Apparat load, Current Coil A, Current Coil B");
   /*Now lets start the first actual move to see if everything worked, and to hear what the stepper sounds like.*/
     if (driver.position_reached() == 1) driver.XTARGET((200 / motor_mm_per_microstep));     //verify motor is at starting position, then move motor equivalent to 100mm
@@ -388,14 +394,16 @@ void read_motor_performance(void){
   /*display measured load values ("Time, Position, Velocity, dT, dx,  Accel, Jerk, Apparat load, Current Coil A, Current Coil B")*/{
     position = (driver.XACTUAL() * motor_mm_per_microstep);                 //read motor position scale it to mm, then store it
     velocity = (driver.VACTUAL() * motor_mm_per_microstep);                 //read motor velocity, scale it to mm, then store it
-    dT = velocity / position;                                               //derive the time in between each position and velocity request
-    dx = velocity * time;                                                   //derive the distance the driver sees compared to the time increments in the CPU
-    accel = velocity  / time;                                               //calculate the acceleration based on the time step of the CPU's code execution
-    jerk = accel  / time;                                                   //calculate the jerk based on the time step of the  CPU's code execution
+    dT = (position - old_position) / (velocity - old_velocity),             //derive the time in between each position and velocity request
+    dx = velocity * .008;                                                   //derive the distance the driver sees compared to the time increments in the CPU
+    accel = (velocity - old_velocity)  / .008;                              //calculate the acceleration based on the time step of the CPU's code execution
+    jerk = (accel - old_accel) / .008;                                      //calculate the jerk based on the time step of the  CPU's code execution
     tsteps = driver.TSTEP();                                                //record the time in between each step of the motor
     load = constrain(driver.sg_result(),0,1000);                            //read motor load and limit its max value to 1000 and store result
     old_velocity = velocity;                                                //storing velocities for checking delta velocity
-    old_accel = accel;                                                      //storing accelerations for checking delta acceleration
+    old_accel = accel,                                                      //storing accelerations for checking delta acceleration
+    old_position = position,
+    old_jerk = jerk;
     //coil_a = ;                                                            //current for coil A
     //coil_b = ;                                                            //current for coil B
 
