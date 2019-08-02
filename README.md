@@ -1,5 +1,9 @@
 # TMC5160_FULL_SPI_CMD_Example
 
+## version 0.1.8 -alpha
+- merged stallguard branch with main branch
+- added functions that perform scaling instead of adding the scaling math per command
+
 ## version 0.1.7 - alpha i stallguard branch
 -tweked the code homing positive and negative. as finding and setting the negative end stop position was causing the motor to stop some distance above where the end stop actually was.
 - in process of making sure that what is set as the origin actually returns motor to that spot when Xtarget 0 is commanded
