@@ -64,7 +64,7 @@
 #define motor_resistance 30                           //Motor coil resistance from datasheet. Change to match your motor.
 #define motor_hold_torque 260                         //Motor holding torque from datasheet. Change to match your motor. May need to calculate
 #define motor_step_degrees 1.8                        //angle of rotation per step of motor
-#define motor_us_counts (360/motor_step_degrees)       //number of full steps per full rotation of motor. 360 / degrees = full step count
+#define motor_us_counts (360 / motor_step_degrees)       //number of full steps per full rotation of motor. 360 / degrees = full step count
 
 /****************************************************
    Now we need to define some of the base setting that
@@ -321,7 +321,7 @@ void setup() {
 
 void loop() {
   Ramp_settings(0,0,0,5,115,5,0,0);
-  Serial.println("Time, Position, Velocity, dT, dx,  Accel, Jerk, Tsteps, Apparat load, Current Coil A, Current Coil B");
+  Serial.println(F("Time, Position, Velocity, dT, dx,  Accel, Jerk, Tsteps, Apparat load, Current Coil A, Current Coil B"));
   /*Now lets start the first actual move to see if everything worked, and to hear what the stepper sounds like.*/
     if (driver.position_reached() == 1) scaled_xtarget(200);     //verify motor is at starting position, then move motor equivalent to 100mm
     time = .001;                //set initial time to 1ms
