@@ -109,7 +109,10 @@
  *****************************************************************/
 #define base_reference_distance 0                     //distance from solid non moving reference point a point on the moving object when object is at origin
 #define distance_thousand_steps 0                     //distance from non moving reference point to same point on moving object when the object has been moved 1000 microsteps
-#define motor_mm_per_microstep .00015703125           //this value will become calculated after the two above values have been measured. (currently using a set value found previously)
+#define motor_scale .00015703125                      //this value will become calculated after the two above values have been measured. (currently using a set value found previously)
+
+#define negative_travel 0                             //furthest distance axis can travel in neg direction
+#define positive_travel 300                           //furthest distance axis can travel in pos direction
 
 /************************************************************
    Now we need to calculate some important values for inital register settings in the driver. If you want to adjust any
@@ -193,9 +196,9 @@ void setup() {
   /* start up uart config as PC interface */{
     Serial.begin(115200);                   //serial com at 115200 baud
     while (!Serial);                        //wait for the arduino to detect an open com port
-    //Serial.println("Start...");             //com port is open, send 1st mesage
-    //Serial.println("");                     //add a new line to separate information
-    //base_calc_values();                     //readout the defined calculations
+    Serial.println("Start...");             //com port is open, send 1st mesage
+    Serial.println(F(""));                     //add a new line to separate information
+    base_calc_values();                     //readout the defined calculations
     delay(5000);                           //wait 10 seconds so user can read values
   }
 
@@ -274,16 +277,36 @@ void setup() {
   /* stallguard settings*/
   //driver.TCOOLTHRS(300);                            //Set the tstep value for when stall is to be active (higher speed = lower tsteps, lower speed higher tsteps)
   driver.sg_stop(1);                                  //enables an internal driver stop when sg_result = 0, resulting in a stall condition
-  driver.sgt(1);                                      //offsets sg_result to fine tune when stall fault is triggered
+  driver.sgt(2);                                      //offsets sg_result to fine tune when stall fault is triggered
   driver.sfilt(0);                                    //Enabled or disables filtering of sg_result measurement
-
+  
+  
+  /* theory validation testing */
+  scaled_xtarget(100);                 //move motor 25 units positive
+  while(driver.position_reached() == 0){  //wait for motion to finish
+    if((scaled_vactual() < -25 || scaled_vactual() > 25) && driver.sg_result() == 0){      //as long as motor is moving > 20mm/s, if sg_result =0 motor hit hard stop
+        driver.XACTUAL(0);
+        scaled_xtarget(0);                 //move motor 25 units positive
+  while(driver.position_reached() == 0);  //wait for motion to finish
+    }
+  }
+  
+  scaled_xtarget(-200);                 //move motor 25 units positive
+  while(driver.position_reached() == 0){  //wait for motion to finish
+    if((scaled_vactual() < -25 || scaled_vactual() > 25) && driver.sg_result() == 0){      //as long as motor is moving > 20mm/s, if sg_result =0 motor hit hard stop
+        driver.XACTUAL(0);
+        scaled_xtarget(0);                 //move motor 25 units positive
+  while(driver.position_reached() == 0);  //wait for motion to finish
+    }
+  }
+  while(1);
 
   /* Sensorless homing routine */
-  scaled_xtarget(25);
-  while(driver.position_reached() == 0);
-  while(homing_count < 5){
-    scaled_xtarget(-300);                                                  //move motor in negative direction further than it can
-    while(driver.position_reached() == 0){                                                            //while in motion monitor sg_result
+  scaled_xtarget(25);                 //move motor 25 units positive
+  while(driver.position_reached() == 0);  //wait for motion to finish
+  while(homing_count < 5){                //perform sensorless homing if needed
+    scaled_xtarget(-300);                 //move motor in negative direction further than it can
+    while(driver.position_reached() == 0){        //do this code while in motion                                                           //while in motion monitor sg_result
        if((scaled_vactual() < -20 || scaled_vactual() > 20) && driver.sg_result() == 0){      //as long as motor is moving > 20mm/s, if sg_result =0 motor hit hard stop
         homing_calibrate[homing_count] = scaled_xactual();                                            //store motor position
         homing_count++;                                                                               //increment sample count
@@ -295,7 +318,17 @@ void setup() {
 
   neg_home = ((homing_calibrate[0] + homing_calibrate[1] + homing_calibrate[2] +homing_calibrate[3] + homing_calibrate[4]) / 5);    //average position samples
   
-  driver.XACTUAL((0 - neg_home));   //not sure how to explain, also not sure if this is exactly how I want it to work
+  scaled_xtarget(0);                                                //move motor to +10mm above origin
+  while(driver.position_reached() == 0); 
+
+  Serial.print(F("Negative end stop detected at "));
+  Serial.print(neg_home);
+  Serial.println(F("mm from power up postion."));
+
+  driver.XACTUAL((0 - neg_home) * 1);   //not sure how to explain, also not sure if this is exactly how I want it to work
+
+  scaled_xtarget(0);                                                //move motor to +10mm above origin
+  while(driver.position_reached() == 0);
 
   driver.sgt(5);                                      //offsets sg_result to fine tune when stall fault is triggered
   
@@ -314,12 +347,44 @@ void setup() {
   }
 
   pos_home = ((homing_calibrate[5] + homing_calibrate[6] + homing_calibrate[7] +homing_calibrate[8] + homing_calibrate[9]) / 5);      //average position samples
-    
+
+  Serial.print(F("Positive end stop detected at "));
+  Serial.print(pos_home);
+  Serial.println(F("mm from power up postion."));
+
+  Serial.print(F(""));
+  Serial.print(F("Actual total travel -> "));
+  Serial.print((pos_home - neg_home));
+  Serial.println(F("mm"));
+
   scaled_xtarget(0);             //move motor back to origin (as set by neg_home)
-  while(driver.position_reached() == 0);                                                 //stop code
+  while(driver.position_reached() == 0); 
+  
+  /* Motor ID'ing this chunk of code will try to determine accel, deccel, and velocity max's for the motor */{
+    long vs = 41,
+            a1 = 10,
+            v1 = 164,
+            am = 10,
+            vm = 1750,
+            dm = 10,
+            d1 = 10,
+            ve = 41;
+            
+    Ramp_settings(vs,a1,v1,am,vm,dm,d1,ve);
+    scaled_xtarget(pos_home - 10);
+  }
+
+  /* setting up stealthchop */
+
+  /* check if ID settings changed */
+
+  /* possibly try fancy motion profiles */
 }
 
 void loop() {
+  
+
+  /* simple motion forward then backwards */
   Ramp_settings(0,0,0,5,115,5,0,0);
   Serial.println(F("Time, Position, Velocity, dT, dx,  Accel, Jerk, Tsteps, Apparat load, Current Coil A, Current Coil B"));
   /*Now lets start the first actual move to see if everything worked, and to hear what the stepper sounds like.*/
@@ -357,7 +422,7 @@ void loop() {
 void base_calc_values(void) {
   Serial.print(F("Supply voltage set to -> "));
   Serial.println(supply_voltage);
-  Serial.println("");
+  Serial.println(F(""));
   Serial.print(F("Motor rated milliamps -> "));
   Serial.println(motor_milliamps);
   Serial.print(F("Motor rated volts -> "));
@@ -366,27 +431,45 @@ void base_calc_values(void) {
   Serial.println(motor_resistance);
   Serial.print(F("Motor rated holding torque in mNm -> "));
   Serial.println(motor_hold_torque);
-  Serial.println("");
+  Serial.println(F(""));
   Serial.print(F("Driver clock frequency -> "));
   Serial.println(drv_clock);
-  Serial.println("");
+  Serial.println(F(""));
   Serial.print(F("Calculated nominal amps based on motor wattage -> "));
   Serial.println(nominal_amps);
   Serial.print(F("Calculated back EMF constant -> "));
   Serial.println(cbemf);
-  Serial.println("");
+  Serial.println(F(""));
   Serial.print(F("Microsteps per revolution -> "));
   Serial.println(microsteps_per_rev);
-  Serial.println("");
+  Serial.println(F(""));
   Serial.print(F("Calculated PMW off time initializer -> "));
   Serial.println(driv_toff);
-  Serial.println("");
+  Serial.println(F(""));
   Serial.print(F("calculated velocity based PWM gradient -> "));
   Serial.println(drv_pwm_grad);
   Serial.print(F("Calculated initial PWM offset -> "));
   Serial.println(drv_pwm_ofs);  
   Serial.print(F("Drive PWM_SCALE_SUM calculation -> "));
   Serial.println( (drv_pwm_ofs + drv_pwm_grad * .7488) );   //The .7488 = 256 * (step frequency / clock freq)
+  Serial.println(F(""));
+  Serial.println(F("Theoretical max values"));
+  Serial.print(F("Vstart / Vstop range -> 0 - "));
+  Serial.print((262143 * motor_scale));
+  Serial.println(F(" mm/s"));
+  Serial.print(F("A1 / AMAX / DMAX / D1 range -> 0 - "));
+  Serial.print((65535 * motor_scale));
+  Serial.println(F(" mm/s2"));
+  Serial.print(F("V1 range -> 0 - "));
+  Serial.print((1048575 * motor_scale));
+  Serial.println(F(" mm/s"));
+  Serial.print(F("VMAX range -> 0 - "));
+  Serial.print((8388096 * motor_scale));
+  Serial.println(F(" mm/s"));
+  Serial.print(F(""));
+  Serial.print(F("Theoretical max travel "));
+  Serial.print(positive_travel);
+  Serial.println(F("mm"));
 } //end of base calc
 //end of base calc
 
@@ -471,14 +554,14 @@ void Ramp_settings(double vstart, double a1, double v1, double amax, double vmax
            scaled_d1,                                               //d1 value after scaling
            scaled_vstop;                                            //vstop after scaling
 
-  scaled_vstart = constrain((vstart / motor_mm_per_microstep), 0, 262143);      //limit each value to within the registers limits
-  scaled_a1 = constrain((a1 / motor_mm_per_microstep), 0, 65535);
-  scaled_v1 = constrain((v1 / motor_mm_per_microstep), 0, 1048575);
-  scaled_amax = constrain((amax / motor_mm_per_microstep), 0, 65535);
-  scaled_vmax = constrain((vmax / motor_mm_per_microstep), 0, 8388096);
-  scaled_dmax = constrain((dmax / motor_mm_per_microstep), 0, 65535);
-  scaled_d1 = constrain((d1 / motor_mm_per_microstep), 0, 65535);
-  scaled_vstop = constrain((vstop / motor_mm_per_microstep), 0, 262143);
+  scaled_vstart = constrain((vstart / motor_scale), 0, 262143);      //limit each value to within the registers limits
+  scaled_a1 = constrain((a1 / motor_scale), 0, 65535);
+  scaled_v1 = constrain((v1 / motor_scale), 0, 1048575);             
+  scaled_amax = constrain((amax / motor_scale), 0, 65535);
+  scaled_vmax = constrain((vmax / motor_scale), 0, 8388096);
+  scaled_dmax = constrain((dmax / motor_scale), 0, 65535);
+  scaled_d1 = constrain((d1 / motor_scale), 0, 65535);
+  scaled_vstop = constrain((vstop / motor_scale), 0, 262143);
 
   if(scaled_vstart > scaled_vstop) scaled_vstop = scaled_vstart;      //ensure vstop is > or = to vstart
   if(scaled_vstart > scaled_vmax) scaled_vmax = scaled_vstart;        //ensure vmax is > or = to vstart
@@ -500,23 +583,23 @@ void Ramp_settings(double vstart, double a1, double v1, double amax, double vmax
 //end of ramp setting
 
 void scaled_xactual(int32_t x){
-  driver.XACTUAL(x / motor_mm_per_microstep);
+  driver.XACTUAL(x / motor_scale);
 } 
 
 int32_t scaled_xactual(void){
-  return (driver.XACTUAL() * motor_mm_per_microstep);
+  return (driver.XACTUAL() * motor_scale);
 }    
 
 int32_t scaled_vactual(void){
-  return (driver.VACTUAL() * motor_mm_per_microstep);
+  return (driver.VACTUAL() * motor_scale);
 } 
 
 void scaled_xtarget(int32_t x){
-  driver.XTARGET(x / motor_mm_per_microstep);
+  driver.XTARGET(x / motor_scale);
 }                  
 
 int32_t scaled_xtarget(void){
-  return (driver.XTARGET() * motor_mm_per_microstep);
+  return (driver.XTARGET() * motor_scale);
 }                  
 
 //end of program
