@@ -277,12 +277,12 @@ void setup() {
   /* stallguard settings*/
   //driver.TCOOLTHRS(300);                            //Set the tstep value for when stall is to be active (higher speed = lower tsteps, lower speed higher tsteps)
   driver.sg_stop(1);                                  //enables an internal driver stop when sg_result = 0, resulting in a stall condition
-  driver.sgt(2);                                      //offsets sg_result to fine tune when stall fault is triggered
+  driver.sgt(3);                                      //offsets sg_result to fine tune when stall fault is triggered
   driver.sfilt(0);                                    //Enabled or disables filtering of sg_result measurement
   
   
   /* theory validation testing */
-  scaled_xtarget(100);                 //move motor 25 units positive
+  /*scaled_xtarget(100);                 //move motor 25 units positive
   while(driver.position_reached() == 0){  //wait for motion to finish
     if((scaled_vactual() < -25 || scaled_vactual() > 25) && driver.sg_result() == 0){      //as long as motor is moving > 20mm/s, if sg_result =0 motor hit hard stop
         driver.XACTUAL(0);
@@ -293,24 +293,60 @@ void setup() {
   
   scaled_xtarget(-200);                 //move motor 25 units positive
   while(driver.position_reached() == 0){  //wait for motion to finish
-    if((scaled_vactual() < -25 || scaled_vactual() > 25) && driver.sg_result() == 0){      //as long as motor is moving > 20mm/s, if sg_result =0 motor hit hard stop
-        driver.XACTUAL(0);
+    //read_motor_performance();
+    if((scaled_vactual() < -20 || scaled_vactual() > 20) && driver.sg_result() == 0){      //as long as motor is moving > 20mm/s, if sg_result =0 motor hit hard stop
+        driver.VMAX(0);
+        Serial.println(scaled_xactual());
+        delay(1000);
+        Ramp_settings(0,0,0,5,25,5,0,0);
+        scaled_xtarget(10);                 //move motor 25 units positive
+        while(driver.position_reached() == 0);  //wait for motion to finish
+        Serial.println(scaled_xactual());
+        delay(10000);
         scaled_xtarget(0);                 //move motor 25 units positive
-  while(driver.position_reached() == 0);  //wait for motion to finish
+        while(driver.position_reached() == 0);  //wait for motion to finish
+        Serial.println(scaled_xactual());
+        delay(10000);
+        scaled_xactual(10);
+        delay(10000);
+        Serial.println(scaled_xactual());
+        delay(10000);
+        scaled_xtarget(0);                 //move motor 25 units positive
+        while(driver.position_reached() == 0);  //wait for motion to finish
+        Serial.println(scaled_xactual());
     }
   }
-  while(1);
+  while(1);*/
 
-  /* Sensorless homing routine */
+  /************************************************************
+   *  Sensorless homing routine
+   * 
+   *  1) move 25mm in hte positive direction to ensure we are off / away from the hardstop
+   *  2) after move has completed move 300mm in the negative direction to ensure the moving platform hits the endstop
+   *  3) as the platform hits the endstop sg_result will approach 0. When sg_result reaches 0 the platform
+   *     has made full contact with endstop
+   *  4) set VMAX to 0, this performs an early motion termination
+   *  5) store the position, increment the homing counter
+   *  6) reset VMAX to what it was before setting it to 0 for early motion termination
+   *  7) move the platform 10 mm in the positive direction from where the endstop was encountered
+   *  8) then repeat 4 more times so that we can get an average of where the end stop is
+   *  9) move platform back to power up origin
+   *  10) then set xactual to the offset value. positive offset moves platform to the negative direction
+   *      and a negative offset moves the platform in a positive direction
+   *  11) find positive endstop and repeat measurment
+   *  12) save max travel distance envelope
+   * ***********************************************************************************************/
   scaled_xtarget(25);                 //move motor 25 units positive
   while(driver.position_reached() == 0);  //wait for motion to finish
   while(homing_count < 5){                //perform sensorless homing if needed
     scaled_xtarget(-300);                 //move motor in negative direction further than it can
     while(driver.position_reached() == 0){        //do this code while in motion                                                           //while in motion monitor sg_result
        if((scaled_vactual() < -20 || scaled_vactual() > 20) && driver.sg_result() == 0){      //as long as motor is moving > 20mm/s, if sg_result =0 motor hit hard stop
+        driver.VMAX(0);
         homing_calibrate[homing_count] = scaled_xactual();                                            //store motor position
-        homing_count++;                                                                               //increment sample count
-        scaled_xtarget(homing_calibrate[homing_count] + 10);                                                //move motor to +10mm above origin
+        homing_count++;
+        Ramp_settings(0,0,0,5,25,5,0,0);                                                                               //increment sample count
+        scaled_xtarget(homing_calibrate[homing_count - 1] + 10);                                                //move motor to +10mm above origin
         while(driver.position_reached() == 0);                                                        //wait for motion complete
        }
     }
@@ -325,11 +361,13 @@ void setup() {
   Serial.print(neg_home);
   Serial.println(F("mm from power up postion."));
 
-  driver.XACTUAL((0 - neg_home) * 1);   //not sure how to explain, also not sure if this is exactly how I want it to work
+  scaled_xactual((0 - neg_home) * 1);   //not sure how to explain, also not sure if this is exactly how I want it to work
+  while(driver.position_reached() == 0);
 
   scaled_xtarget(0);                                                //move motor to +10mm above origin
   while(driver.position_reached() == 0);
 
+  while(1);
   driver.sgt(5);                                      //offsets sg_result to fine tune when stall fault is triggered
   
   while(homing_count < 10){
