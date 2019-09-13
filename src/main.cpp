@@ -333,9 +333,11 @@ void setup() {
    *  9) move platform back to power up origin
    *  10) then set xactual to the offset value. positive offset moves platform to the negative direction
    *      and a negative offset moves the platform in a positive direction
-   *  11) find positive endstop and repeat measurment
+   *  11) find positive endstop and repeat measurement
    *  12) save max travel distance envelope
    * ***********************************************************************************************/
+  Serial.println(F(" \nBegin absolute negative position detection.\n"));
+  
   scaled_xtarget(25);                 //move motor 25 units positive
   while(driver.position_reached() == 0);  //wait for motion to finish
   while(homing_count < 5){                //perform sensorless homing if needed
@@ -352,7 +354,7 @@ void setup() {
     }
   }
 
-  neg_home = ((homing_calibrate[0] + homing_calibrate[1] + homing_calibrate[2] +homing_calibrate[3] + homing_calibrate[4]) / 5);    //average position samples
+  neg_home = ((homing_calibrate[0] + homing_calibrate[1] + homing_calibrate[2] + homing_calibrate[3] + homing_calibrate[4]) / 5);    //average position samples
   
   scaled_xtarget(0);                                                //move motor to +10mm above origin
   while(driver.position_reached() == 0); 
@@ -361,13 +363,16 @@ void setup() {
   Serial.print(neg_home);
   Serial.println(F("mm from power up postion."));
 
+  Serial.println(F(" \nAbsolute negative position detection complete."));
+  Serial.println(F(" \nBegin absolute positive position detection.\n"));
+
   scaled_xactual((0 - neg_home) * 1);   //not sure how to explain, also not sure if this is exactly how I want it to work
   while(driver.position_reached() == 0);
 
   scaled_xtarget(0);                                                //move motor to +10mm above origin
   while(driver.position_reached() == 0);
 
-  while(1);
+  //while(1);
   driver.sgt(5);                                      //offsets sg_result to fine tune when stall fault is triggered
   
   while(homing_count < 10){
@@ -390,26 +395,34 @@ void setup() {
   Serial.print(pos_home);
   Serial.println(F("mm from power up postion."));
 
+  Serial.println(F(" \nAbsolute positive position detection complete.\n"));
+
   Serial.print(F(""));
   Serial.print(F("Actual total travel -> "));
   Serial.print((pos_home - neg_home));
   Serial.println(F("mm"));
 
+  driver.sgt(3);                                      //offsets sg_result to fine tune when stall fault is triggered
+  
   scaled_xtarget(0);             //move motor back to origin (as set by neg_home)
   while(driver.position_reached() == 0); 
   
   /* Motor ID'ing this chunk of code will try to determine accel, deccel, and velocity max's for the motor */{
     long vs = 41,
-            a1 = 10,
-            v1 = 164,
-            am = 10,
-            vm = 1750,
-            dm = 10,
-            d1 = 10,
-            ve = 41;
+         a1 = 10,
+         v1 = 164,
+         am = 10,
+         vm = 1750,
+         dm = 10,
+         d1 = 10,
+         ve = 41;
             
     Ramp_settings(vs,a1,v1,am,vm,dm,d1,ve);
+    driver.sgt(5);                                      //offsets sg_result to fine tune when stall fault is triggered
     scaled_xtarget(pos_home - 10);
+    while (driver.position_reached() == 0){                                                 //while in motion do nothing. This prevents the code from missing actions
+      read_motor_performance();                                                             //while in motion do only what's inside this loop
+    }
   }
 
   /* setting up stealthchop */
@@ -417,6 +430,9 @@ void setup() {
   /* check if ID settings changed */
 
   /* possibly try fancy motion profiles */
+
+  Serial.println("End of setup");
+  while(1);
 }
 
 void loop() {
